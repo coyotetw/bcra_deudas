@@ -35,6 +35,20 @@ SIT_LABELS = {
     5: "5 — Irrecuperable",
 }
 
+
+# Valores que NO son nombres reales
+NOMBRES_INVALIDOS = {
+    "", "sin datos", "sin denominación", "sin denominacion",
+    "no encontrado", "sin nombre", "⚠ sin nombre",
+    "sin denominaci\xc3\xb3n", "none", "nan",
+}
+
+def es_nombre_valido(nombre) -> bool:
+    if nombre is None:
+        return False
+    s = str(nombre).strip().lower()
+    return s != "" and s not in NOMBRES_INVALIDOS
+
 class SSLAdapter(requests.adapters.HTTPAdapter):
     def send(self, request, **kwargs):
         kwargs["verify"] = False
@@ -216,7 +230,7 @@ with tab_consulta:
                 "Deuda total ($)":     proc["deuda_total"]  if proc["deuda_total"]  is not None else "",
                 "_sit_num":            proc["situacion_num"],
                 "_manchas_bool":       proc["manchas_24m"],
-                "_nombre_ok":          bool(proc["nombre"]),
+                "_nombre_ok":          es_nombre_valido(proc["nombre"]),
                 "_error":              proc["error"] or "",
                 "_proc":               proc,
             })
@@ -389,18 +403,9 @@ with tab_unificar:
                         break
 
                 if col_nombre:
-                    df_limpios_u = df_unificado[
-                        df_unificado[col_nombre].notna() &
-                        (df_unificado[col_nombre].str.strip() != "") &
-                        (df_unificado[col_nombre] != "Sin datos") &
-                        (~df_unificado[col_nombre].str.startswith("⚠", na=False))
-                    ].reset_index(drop=True)
-                    df_incompletos_u = df_unificado[
-                        df_unificado[col_nombre].isna() |
-                        (df_unificado[col_nombre].str.strip() == "") |
-                        (df_unificado[col_nombre] == "Sin datos") |
-                        (df_unificado[col_nombre].str.startswith("⚠", na=False))
-                    ][[col_cuit]].reset_index(drop=True)
+                    mask_limpios_u   = df_unificado[col_nombre].apply(es_nombre_valido)
+                    df_limpios_u     = df_unificado[mask_limpios_u].reset_index(drop=True)
+                    df_incompletos_u = df_unificado[~mask_limpios_u][[col_cuit]].reset_index(drop=True)
 
                     with col_dl2:
                         st.download_button(
@@ -471,14 +476,7 @@ with tab_checker:
 
         # Detectar incompletos: sin nombre o con nombre vacío/nulo/Sin datos
         if col_nombre_ch:
-            mask_incompleto = (
-                df_check[col_nombre_ch].isna() |
-                (df_check[col_nombre_ch].str.strip() == "") |
-                (df_check[col_nombre_ch] == "Sin datos") |
-                (df_check[col_nombre_ch] == "Sin denominación") |
-                (df_check[col_nombre_ch] == "No encontrado") |
-                (df_check[col_nombre_ch].str.startswith("⚠", na=False))
-            )
+            mask_incompleto = ~df_check[col_nombre_ch].apply(es_nombre_valido)
         else:
             # Si el CSV solo tiene CUITs (archivo de reintentar), todos son incompletos
             mask_incompleto = pd.Series([True] * len(df_check))
@@ -562,13 +560,7 @@ with tab_checker:
 
                 # Cuántos siguen sin nombre
                 if col_nombre_ch:
-                    aun_sin_nombre = df_actualizado[
-                        df_actualizado[col_nombre_ch].isna() |
-                        (df_actualizado[col_nombre_ch].str.strip() == "") |
-                        (df_actualizado[col_nombre_ch] == "Sin datos") |
-                        (df_actualizado[col_nombre_ch] == "Sin denominación") |
-                        (df_actualizado[col_nombre_ch] == "No encontrado")
-                    ]
+                    aun_sin_nombre = df_actualizado[~df_actualizado[col_nombre_ch].apply(es_nombre_valido)]
                 else:
                     aun_sin_nombre = pd.DataFrame()
 
@@ -596,13 +588,7 @@ with tab_checker:
                     )
 
                 if col_nombre_ch:
-                    df_final_limpio = df_actualizado[
-                        df_actualizado[col_nombre_ch].notna() &
-                        (df_actualizado[col_nombre_ch].str.strip() != "") &
-                        (df_actualizado[col_nombre_ch] != "Sin datos") &
-                        (df_actualizado[col_nombre_ch] != "Sin denominación") &
-                        (df_actualizado[col_nombre_ch] != "No encontrado")
-                    ].reset_index(drop=True)
+                    df_final_limpio = df_actualizado[df_actualizado[col_nombre_ch].apply(es_nombre_valido)].reset_index(drop=True)
 
                     with col_x2:
                         st.download_button(
